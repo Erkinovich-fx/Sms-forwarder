@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SMS Forwarder</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #111; color: #eee; }
+    .status { margin-top: 20px; padding: 14px; background: #222; border-radius: 8px; line-height: 1.6; }
+    .ok { color: #4caf50; }
+    .warn { color: #ff9800; }
+    button { padding: 12px; width: 100%; background: #2b8aef; color: #fff; border: none; border-radius: 6px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h2>SMS → Telegram</h2>
+  <div class="status" id="status">Holat tekshirilmoqda...</div>
+  <button id="battBtn" style="display:none">Batareya cheklovini o'chirish</button>
+
+  <script src="capacitor.js"></script>
+  <script>
+    async function checkStatus() {
+      try {
+        const { SmsForwarder } = window.Capacitor.Plugins;
+        const res = await SmsForwarder.getStatus();
+        const statusEl = document.getElementById('status');
+        let html = '';
+        if (res.granted) {
+          html += '<span class="ok">✅ SMS ruxsati berilgan</span><br>Chat ID: ' + res.chatId + '<br>';
+        } else {
+          html += '<span class="warn">⚠️ SMS ruxsati berilmagan</span><br>';
+        }
+        if (res.batteryOptimized === false) {
+          html += '<span class="ok">✅ Batareya cheklovi o\'chirilgan (fonda ishlayveradi)</span>';
+        } else {
+          html += '<span class="warn">⚠️ Batareya cheklovi hali yoqilgan</span>';
+          document.getElementById('battBtn').style.display = 'block';
+        }
+        statusEl.innerHTML = html;
+      } catch (e) {
+        document.getElementById('status').innerText = 'Xato: ' + e.message;
+      }
+    }
+
+    document.getElementById('battBtn').addEventListener('click', async () => {
+      const { SmsForwarder } = window.Capacitor.Plugins;
+      await SmsForwarder.requestIgnoreBatteryOptimization();
+      setTimeout(checkStatus, 1000);
+    });
+
+    checkStatus();
+  </script>
+</body>
+</html>

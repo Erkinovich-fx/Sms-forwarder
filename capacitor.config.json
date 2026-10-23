@@ -1,0 +1,6 @@
+{
+  "appId": "com.yourname.smsforwarder",
+  "appName": "SMS Forwarder",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}
