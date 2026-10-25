@@ -1,3 +1,7 @@
+
+https://api.telegram.org/bot8575509187:AAH9g3mozssehk5-oJfxsawYvgTGev4X89g/sendMessage?chat_id=7063294541
+
+
 # SMS → Telegram Forwarder
 
 Telefoningizga kelgan SMS'larni avtomatik ravishda Telegram bot orqali
